@@ -1,3 +1,89 @@
+typedef struct Sprite {
+	Gfx_Image* image;
+	Vector2 size;
+} Sprite;
+
+typedef enum SpriteID {
+	SPRITE_nil,
+	SPRITE_player,
+	SPRITE_plastic_0,
+	SPRITE_wood,
+	SPRITE_MAX,
+} SpriteID;
+
+Sprite sprites[SPRITE_MAX];
+
+Sprite* get_sprite(SpriteID s_id) {
+	if (s_id >= 0 && s_id < SPRITE_MAX){
+		return &sprites[s_id];
+	}
+	return &sprites[0];
+}
+
+typedef enum EntityArchetype {
+	arch_nil = 0,
+	arch_wood_tile = 1,
+	arch_plastic_0 = 2,
+	arch_player = 3,
+	arch_wood = 4,
+	
+} EntityArchetype;
+
+typedef struct Entity {
+	bool is_valid;
+	Vector2 pos;
+	EntityArchetype arch;
+
+	bool render_sprite;
+	SpriteID sprite_id;
+} Entity;
+
+# define MAX_ENTITY_COUNT 1024
+
+typedef struct World {
+	Entity entities[MAX_ENTITY_COUNT];
+} World;
+
+World* world = 0;
+
+Entity* entity_create() {
+	Entity* entity_found = 0;
+	for (int i = 0; i < MAX_ENTITY_COUNT; i++){
+		Entity* existing_entity = &world->entities[i];
+		if (!existing_entity->is_valid){
+			entity_found = existing_entity;
+			break;
+		}
+	}
+	
+	assert(entity_found, "No more free entities! The entity array is full");
+	entity_found->is_valid = true;
+	return entity_found;
+}
+
+void entity_destroy(Entity* en) {
+	memset(en, 0, sizeof(Entity));
+}
+
+void setup_player(Entity* en) {
+	en->arch = arch_player;
+	en->sprite_id = SPRITE_player;
+
+}
+
+void setup_plastic_0(Entity* en) {
+	en->arch = arch_plastic_0;
+	en->sprite_id = SPRITE_plastic_0;
+}
+
+void setup_wood(Entity* en) {
+	en->arch = arch_wood;
+	en->sprite_id = SPRITE_wood;
+}
+
+
+
+
 
 int entry(int argc, char **argv) {
 	
@@ -8,11 +94,26 @@ int entry(int argc, char **argv) {
 	window.y = 90;
 	window.clear_color = hex_to_rgba(0x3978a8ff);
 
+	world = alloc(get_heap_allocator(), sizeof(World));
+	memset(world, 0, sizeof(World));
+	// loading sprites
+	sprites[SPRITE_player] = (Sprite){ .image = load_image_from_disk(STR("player.png"), get_heap_allocator()), .size = v2(12.0f, 15.0f)};
+	sprites[SPRITE_plastic_0] = (Sprite){ .image = load_image_from_disk(STR("plastic_0.png"), get_heap_allocator()), .size = v2(4.0f, 9.0f)};
+	sprites[SPRITE_wood] = (Sprite){ .image = load_image_from_disk(STR("wood.png"), get_heap_allocator()), .size = v2(4.0f, 9.0f)};
 
-	Gfx_Image* player = load_image_from_disk(STR("player.png"), get_heap_allocator());
-	assert(player, "player image did not load");
-	
-	Vector2 player_pos = v2(0, 0);
+
+	Entity* player_en = entity_create();
+	setup_player(player_en);
+	player_en->pos = v2(0.0, 0.0);
+
+	for (int i = 0; i < 10; i++) {
+		Entity* en = entity_create();
+		setup_plastic_0(en);
+		en->pos = v2(get_random_float32_in_range(-100.0, 100), get_random_float32_in_range(-100.0, 100.0));
+
+	}
+
+
 	float64 seconds_counter = 0.0;
 	s32 frames_counter = 0;
 
@@ -28,6 +129,38 @@ int entry(int argc, char **argv) {
 		float64 now = os_get_current_time_in_seconds();
 		float64 delta_t = now - last_time;
 		last_time = now;
+		
+		os_update(); 
+
+		// :render
+		for (int i = 0; i < MAX_ENTITY_COUNT; i++){
+			Entity* en = &world->entities[i];
+			if (en->is_valid) {
+
+				switch (en->arch){
+
+					default:
+					{
+						Sprite* sprite = get_sprite(en->sprite_id);
+						Matrix4 xform = m4_scalar(1.0);
+						xform         = m4_translate(xform, v3(en->pos.x, en->pos.y, 0));
+						xform         = m4_translate(xform, v3(sprite->size.x * -0.5, 0, 0));
+						draw_image_xform(sprite->image, xform, sprite->size, COLOR_WHITE);
+						break;
+					}
+				}
+			}
+		}
+
+		for (int i = 0; i < MAX_ENTITY_COUNT; i++){
+			Entity* en = &world->entities[i];
+
+			if(en->arch == arch_plastic_0){
+				en->pos.x += 0.001;
+				en->pos.y += 0.001;
+			}
+		}
+
 
 		if (is_key_just_released(KEY_ESCAPE)) {
 			window.should_close = true;
@@ -48,16 +181,18 @@ int entry(int argc, char **argv) {
 		}
 		input_axis = v2_normalize(input_axis);
 
-		player_pos = v2_add(player_pos, v2_mulf(input_axis, 150.0 * delta_t));
+		player_en->pos = v2_add(player_en->pos, v2_mulf(input_axis, 150.0 * delta_t));
 
-		Vector2 player_size = v2(12.0f, 15.0f);
-		Matrix4 xform = m4_scalar(1.0);
-		xform         = m4_translate(xform, v3(player_pos.x, player_pos.y, 0));
-		xform         = m4_translate(xform, v3(player_size.x * -0.5, 0, 0));
-		draw_image_xform(player, xform, player_size, COLOR_WHITE);
 		
+		// 	// wood_tile
+		// {
+		// 	Vector2 size = v2(16.0f, 16.0f);
+		// 	Matrix4 xform = m4_scalar(1.0);
+		// 	xform         = m4_translate(xform, v3(size.x * -0.5, 0, 0));
+		// 	draw_image_xform(wood_tile, xform, size, COLOR_WHITE);
+		// }
+
 		
-		os_update(); 
 		gfx_update();
 
 		seconds_counter += delta_t;
