@@ -1,10 +1,13 @@
-// randy: is this something that's usually standard in math libraries or am I tripping?
+const int tile_width = 16;
+const float entity_selection_radius = 10.0f;
+const int player_health = 10;
+const int plastic_health = 1;
+const int wood_health = 1;
+
+
 inline float v2_dist(Vector2 a, Vector2 b) {
     return v2_length(v2_sub(a, b));
 }
-
-const int tile_width = 16;
-const float entity_selection_radius = 10.0f;
 int world_to_tile_pos(float world_pos){
 	return world_pos / (float) tile_width;
 }
@@ -30,7 +33,6 @@ void animate_v2_to_target(Vector2* value, Vector2 target, float delta_t, float r
 
 typedef struct Sprite {
 	Gfx_Image* image;
-	Vector2 size;
 } Sprite;
 
 typedef enum SpriteID {
@@ -38,16 +40,22 @@ typedef enum SpriteID {
 	SPRITE_player,
 	SPRITE_plastic_0,
 	SPRITE_wood,
+	SPRITE_item_plastic,
+	SPRITE_item_wood,
 	SPRITE_MAX,
 } SpriteID;
 
 Sprite sprites[SPRITE_MAX];
 
-Sprite* get_sprite(SpriteID s_id) {
-	if (s_id >= 0 && s_id < SPRITE_MAX){
-		return &sprites[s_id];
+Sprite* get_sprite(SpriteID id) {
+	if (id >= 0 && id < SPRITE_MAX){
+		return &sprites[id];
 	}
 	return &sprites[0];
+}
+
+Vector2 get_sprite_size(Sprite* sprite){
+	return (Vector2) {sprite->image->width, sprite->image->height};
 }
 
 typedef enum EntityArchetype {
@@ -56,6 +64,10 @@ typedef enum EntityArchetype {
 	arch_plastic_0 = 2,
 	arch_player = 3,
 	arch_wood = 4,
+
+	arch_item_plastic = 5,
+	arch_item_wood = 6,
+	ARCH_MAX,
 	
 } EntityArchetype;
 
@@ -63,11 +75,12 @@ typedef struct Entity {
 	bool is_valid;
 	Vector2 pos;
 	EntityArchetype arch;
-
 	bool render_sprite;
 	SpriteID sprite_id;
+	int health;
+	bool destructable;
 } Entity;
-
+// :entity
 # define MAX_ENTITY_COUNT 1024
 
 typedef struct World {
@@ -104,19 +117,33 @@ void entity_destroy(Entity* en) {
 void setup_player(Entity* en) {
 	en->arch = arch_player;
 	en->sprite_id = SPRITE_player;
-
+	en->health = player_health;
 }
 
 void setup_plastic_0(Entity* en) {
 	en->arch = arch_plastic_0;
 	en->sprite_id = SPRITE_plastic_0;
+	en->health = plastic_health;
+	en->destructable = true;
 }
+
 
 void setup_wood(Entity* en) {
 	en->arch = arch_wood;
 	en->sprite_id = SPRITE_wood;
+	en->health = wood_health;
+	en->destructable = true;
 }
 
+void setup_item_plastic(Entity* en){
+	en->arch = arch_item_plastic;
+	en->sprite_id = SPRITE_item_plastic;
+}
+
+void setup_item_wood(Entity* en){
+	en->arch = arch_item_wood;
+	en->sprite_id = SPRITE_item_wood;
+}
 
 Vector2 screen_to_world() {
 	float mouse_x = input_frame.mouse_x;
@@ -152,10 +179,13 @@ int entry(int argc, char **argv) {
 
 	world = alloc(get_heap_allocator(), sizeof(World));
 	memset(world, 0, sizeof(World));
-	// loading sprites
-	sprites[SPRITE_player] = (Sprite){ .image = load_image_from_disk(STR("player.png"), get_heap_allocator()), .size = v2(12.0f, 15.0f)};
-	sprites[SPRITE_plastic_0] = (Sprite){ .image = load_image_from_disk(STR("plastic_0.png"), get_heap_allocator()), .size = v2(4.0f, 9.0f)};
-	sprites[SPRITE_wood] = (Sprite){ .image = load_image_from_disk(STR("wood.png"), get_heap_allocator()), .size = v2(4.0f, 9.0f)};
+	
+	// :sprites
+	sprites[SPRITE_player] = (Sprite){ .image = load_image_from_disk(STR("resources/player.png"), get_heap_allocator())};
+	sprites[SPRITE_plastic_0] = (Sprite){ .image = load_image_from_disk(STR("resources/plastic_0.png"), get_heap_allocator())};
+	sprites[SPRITE_wood] = (Sprite){ .image = load_image_from_disk(STR("resources/wood.png"), get_heap_allocator())};
+	sprites[SPRITE_item_plastic] = (Sprite){ .image = load_image_from_disk(STR("resources/item_plastic.png"), get_heap_allocator())};
+	sprites[SPRITE_item_wood] = (Sprite){ .image = load_image_from_disk(STR("resources/item_wood.png"), get_heap_allocator())};
 
 	// :font
 	Gfx_Font *font = load_font_from_disk(STR("C:/windows/fonts/arial.ttf"), get_heap_allocator());
@@ -213,23 +243,16 @@ int entry(int argc, char **argv) {
 
 			for (int i = 0; i < MAX_ENTITY_COUNT; i++){
 				Entity* en = &world->entities[i];
-				if(en->is_valid){
+				if(en->is_valid && en->destructable){
 					Sprite* sprite = get_sprite(en->sprite_id);
 					
 						float dist = fabsf(v2_dist(en->pos, mouse_pos_world));
 						if(dist < entity_selection_radius){
-							if (!world_frame.selected_en ||(dist < smallest_dist)){
+							if (!world_frame.selected_en || (dist < smallest_dist)){
 								world_frame.selected_en = en;
 								smallest_dist = dist;
 
 							}
-							// Range2f bounds = range2f_make_bottom_center(sprite->size);
-							// bounds = range2f_shift(bounds, en->pos);
-							// Vector4 col = COLOR_RED;
-							// draw_rect(bounds.min, range2f_size(bounds), col);
-							// col.a = 0.4;
-							// draw_rect(bounds.min, range2f_size(bounds), col);
-							// draw_line(mouse_pos_world, en->pos, 1, COLOR_BLACK);
 						}
 						
 					}
@@ -258,6 +281,46 @@ int entry(int argc, char **argv) {
 			}
 		}
 
+		// :click-detection
+		{
+			Entity* selected_en = world_frame.selected_en;
+
+			if (is_key_just_pressed(MOUSE_BUTTON_LEFT)){
+				consume_key_just_pressed(MOUSE_BUTTON_LEFT);
+
+				if (selected_en){
+					selected_en->health -= 1;
+					if (selected_en->health <= 0){
+						
+						// this will spawn an item at the current player position
+						// TODO: when ineventory is added add it to the inventory instead of spawning it onto the player
+						switch(selected_en->arch){
+							case (arch_plastic_0):
+							{
+								Entity* en = entity_create();
+								setup_item_plastic(en);
+								en->pos = player_en->pos;
+								break;
+							}
+							case (arch_wood):
+							{
+								Entity* en = entity_create();
+								setup_item_wood(en);
+								en->pos = player_en->pos;
+								break;
+							}
+						}
+
+
+						entity_destroy(selected_en);
+
+					}
+
+				}
+
+			}
+		}
+
 		// :render
 		for (int i = 0; i < MAX_ENTITY_COUNT; i++){
 			Entity* en = &world->entities[i];
@@ -270,13 +333,13 @@ int entry(int argc, char **argv) {
 						Sprite* sprite = get_sprite(en->sprite_id);
 						Matrix4 xform = m4_scalar(1.0);
 						xform         = m4_translate(xform, v3(en->pos.x, en->pos.y, 0));
-						xform         = m4_translate(xform, v3(sprite->size.x * -0.5, 0, 0));
+						xform         = m4_translate(xform, v3(get_sprite_size(sprite).x * -0.5, 0, 0));
 
 						Vector4 color = COLOR_WHITE;
 						if (world_frame.selected_en == en){
 							color = COLOR_BLACK;
 						}
-						draw_image_xform(sprite->image, xform, sprite->size, color);
+						draw_image_xform(sprite->image, xform, get_sprite_size(sprite), color);
 						draw_text(font, sprint(temp_allocator, STR("%.2f, %.2f"), en->pos.x, en->pos.y), font_height * 0.90, en->pos, v2(0.1, 0.1), COLOR_GREEN);
 						break;
 					}
