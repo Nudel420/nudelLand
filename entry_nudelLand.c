@@ -17,9 +17,9 @@ int world_to_tile_pos(float world_pos){
 // ^^^ game engine stuff 
 
 
-
+// moves from 0 -> 1 instead of
 float sin_breathe(float time, float rate){
-	return sin(time * rate);
+	return (sin(time * rate) + 1.0) / 2.0;
 }
 
 bool almost_equals(float a, float b, float epsilon) {
@@ -282,20 +282,20 @@ int entry(int argc, char **argv) {
 
 
 		// :tiles
-		float player_tile_x = world_to_tile_pos(player_en->pos.x);
-		float player_tile_y = world_to_tile_pos(player_en->pos.y);
-		const int tile_radius_x = 5;
-		const int tile_radius_y = 5;
+		// float player_tile_x = world_to_tile_pos(player_en->pos.x);
+		// float player_tile_y = world_to_tile_pos(player_en->pos.y);
+		// const int tile_radius_x = 5;
+		// const int tile_radius_y = 5;
 
-		for (int x = player_tile_x - tile_radius_x; x < player_tile_x + tile_radius_x; x++) {
-			for (int y = player_tile_y - tile_radius_y; y < player_tile_y + tile_radius_y; y++) {
-				if((x + (y % 2 == 0)) % 2 == 0){
-					float x_pos = x * tile_width;
-					float y_pos = y * tile_width;
-					draw_rect(v2(x_pos, y_pos), v2(tile_width, tile_width), COLOR_PURPLE);
-				}
-			}
-		}
+		// for (int x = player_tile_x - tile_radius_x; x < player_tile_x + tile_radius_x; x++) {
+		// 	for (int y = player_tile_y - tile_radius_y; y < player_tile_y + tile_radius_y; y++) {
+		// 		if((x + (y % 2 == 0)) % 2 == 0){
+		// 			float x_pos = x * tile_width;
+		// 			float y_pos = y * tile_width;
+		// 			draw_rect(v2(x_pos, y_pos), v2(tile_width, tile_width), COLOR_PURPLE);
+		// 		}
+		// 	}
+		// }
 
 		// :click-detection
 		{
