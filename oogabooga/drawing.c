@@ -278,4 +278,5 @@ Gfx_Text_Metrics draw_text_and_measure(Gfx_Font *font, string text, u32 raster_h
 #define COLOR_BLUE  ((Vector4){0.0, 0.0, 1.0, 1.0})
 #define COLOR_WHITE ((Vector4){1.0, 1.0, 1.0, 1.0})
 #define COLOR_BLACK ((Vector4){0.0, 0.0, 0.0, 1.0})
+#define COLOR_PURPLE ((Vector4){1.0, 0.0, 1.0, 0.5})
 

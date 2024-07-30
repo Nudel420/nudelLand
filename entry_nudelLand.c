@@ -1,3 +1,9 @@
+const int tile_width = 16;
+
+int world_to_tile_pos(float world_pos){
+	return world_pos / (float) tile_width;
+}
+
 bool almost_equals(float a, float b, float epsilon) {
  return fabs(a - b) <= epsilon;
 }
@@ -64,6 +70,7 @@ typedef struct World {
 } World;
 
 World* world = 0;
+
 
 Entity* entity_create() {
 	Entity* entity_found = 0;
@@ -211,6 +218,22 @@ int entry(int argc, char **argv) {
 		}
 
 
+		// :tiles
+		float player_tile_x = world_to_tile_pos(player_en->pos.x);
+		float player_tile_y = world_to_tile_pos(player_en->pos.y);
+		const int tile_radius_x = 5;
+		const int tile_radius_y = 5;
+
+		for (int x = player_tile_x - tile_radius_x; x < player_tile_x + tile_radius_x; x++) {
+			for (int y = player_tile_y - tile_radius_y; y < player_tile_y + tile_radius_y; y++) {
+				if((x + (y % 2 == 0)) % 2 == 0){
+					float x_pos = x * tile_width;
+					float y_pos = y * tile_width;
+					draw_rect(v2(x_pos, y_pos), v2(tile_width, tile_width), COLOR_PURPLE);
+				}
+			}
+		}
+
 		// :render
 		for (int i = 0; i < MAX_ENTITY_COUNT; i++){
 			Entity* en = &world->entities[i];
@@ -226,7 +249,7 @@ int entry(int argc, char **argv) {
 						xform         = m4_translate(xform, v3(sprite->size.x * -0.5, 0, 0));
 						draw_image_xform(sprite->image, xform, sprite->size, COLOR_WHITE);
 
-						draw_text(font, sprint(temp, STR("%f, %f"), en->pos.x, en->pos.y), font_height, en->pos, v2(0.1, 0.1), COLOR_GREEN);
+						draw_text(font, sprint(temp, STR("%.2f, %.2f"), en->pos.x, en->pos.y), font_height * 0.90, en->pos, v2(0.1, 0.1), COLOR_GREEN);
 						break;
 					}
 				}
@@ -276,14 +299,25 @@ int entry(int argc, char **argv) {
 		player_en->pos = v2_add(player_en->pos, v2_mulf(input_axis, 150.0 * delta_t));
 
 
-		if (is_key_down(KEY_ARROW_UP)) {
-			zoom += 0.001;
+		// :scroll-zoom
+		for (u64 i = 0; i < input_frame.number_of_events; i++) {
+			Input_Event e = input_frame.events[i];
+			switch (e.kind) {
+				case (INPUT_EVENT_SCROLL):
+				{				
+					zoom += e.yscroll * 0.25;
+					break;
+				}
+				case (INPUT_EVENT_KEY):
+				{
+					break;
+				}   
+				case (INPUT_EVENT_TEXT):
+				{
+					break;
+				}
+			}
 		}
-		if (is_key_down(KEY_ARROW_DOWN)) {
-			zoom -= 0.001;
-		}
-		
-
 		
 		gfx_update();
 
