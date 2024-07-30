@@ -1,5 +1,10 @@
-const int tile_width = 16;
+// randy: is this something that's usually standard in math libraries or am I tripping?
+inline float v2_dist(Vector2 a, Vector2 b) {
+    return v2_length(v2_sub(a, b));
+}
 
+const int tile_width = 16;
+const float entity_selection_radius = 10.0f;
 int world_to_tile_pos(float world_pos){
 	return world_pos / (float) tile_width;
 }
@@ -69,8 +74,13 @@ typedef struct World {
 	Entity entities[MAX_ENTITY_COUNT];
 } World;
 
-World* world = 0;
+World* world;
 
+typedef struct WorldFrame{
+	Entity* selected_en;
+
+} WorldFrame;
+WorldFrame world_frame;
 
 Entity* entity_create() {
 	Entity* entity_found = 0;
@@ -169,14 +179,14 @@ int entry(int argc, char **argv) {
 	float64 seconds_counter = 0.0;
 	s32 frames_counter = 0;
 
-	float zoom = 5.3; // 5.3
+	float zoom = 4; // 5.3
 	Vector2 camera_pos = v2(0.0, 0.0);
 
 
 	float64 last_time = os_get_current_time_in_seconds();
 	while (!window.should_close) {
 		reset_temporary_storage();
-	
+		world_frame = (WorldFrame){0};
 		float64 now = os_get_current_time_in_seconds();
 		float64 delta_t = now - last_time;
 		last_time = now;
@@ -196,6 +206,9 @@ int entry(int argc, char **argv) {
 		
 		// :mouse to world
 		{
+
+			float smallest_dist = INFINITY;
+
 			Vector2 mouse_pos_world = screen_to_world();
 
 			for (int i = 0; i < MAX_ENTITY_COUNT; i++){
@@ -203,18 +216,28 @@ int entry(int argc, char **argv) {
 				if(en->is_valid){
 					Sprite* sprite = get_sprite(en->sprite_id);
 					
-					// Range2f bounds = range2f_make_bottom_center(sprite->size);
-					// bounds = range2f_shift(bounds, en->pos);
+						float dist = fabsf(v2_dist(en->pos, mouse_pos_world));
+						if(dist < entity_selection_radius){
+							if (!world_frame.selected_en ||(dist < smallest_dist)){
+								world_frame.selected_en = en;
+								smallest_dist = dist;
 
-					// Vector4 col = COLOR_RED;
-					// col.a = 0.4;
-					// if(range2f_contains(bounds, mouse_pos_world)){
-					// 	col.a = 0.8;
-					// }
-					// draw_rect(bounds.min, range2f_size(bounds), col);
+							}
+							// Range2f bounds = range2f_make_bottom_center(sprite->size);
+							// bounds = range2f_shift(bounds, en->pos);
+							// Vector4 col = COLOR_RED;
+							// draw_rect(bounds.min, range2f_size(bounds), col);
+							// col.a = 0.4;
+							// draw_rect(bounds.min, range2f_size(bounds), col);
+							// draw_line(mouse_pos_world, en->pos, 1, COLOR_BLACK);
+						}
+						
+					}
+
+
 
 				}
-			}
+			
 
 		}
 
@@ -248,9 +271,13 @@ int entry(int argc, char **argv) {
 						Matrix4 xform = m4_scalar(1.0);
 						xform         = m4_translate(xform, v3(en->pos.x, en->pos.y, 0));
 						xform         = m4_translate(xform, v3(sprite->size.x * -0.5, 0, 0));
-						draw_image_xform(sprite->image, xform, sprite->size, COLOR_WHITE);
 
-						draw_text(font, sprint(temp, STR("%.2f, %.2f"), en->pos.x, en->pos.y), font_height * 0.90, en->pos, v2(0.1, 0.1), COLOR_GREEN);
+						Vector4 color = COLOR_WHITE;
+						if (world_frame.selected_en == en){
+							color = COLOR_BLACK;
+						}
+						draw_image_xform(sprite->image, xform, sprite->size, color);
+						draw_text(font, sprint(temp_allocator, STR("%.2f, %.2f"), en->pos.x, en->pos.y), font_height * 0.90, en->pos, v2(0.1, 0.1), COLOR_GREEN);
 						break;
 					}
 				}
