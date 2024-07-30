@@ -4,12 +4,22 @@ const int player_health = 10;
 const int plastic_health = 1;
 const int wood_health = 1;
 
+// ^^^ constants
+
 
 inline float v2_dist(Vector2 a, Vector2 b) {
     return v2_length(v2_sub(a, b));
 }
 int world_to_tile_pos(float world_pos){
 	return world_pos / (float) tile_width;
+}
+
+// ^^^ game engine stuff 
+
+
+
+float sin_breathe(float time, float rate){
+	return sin(time * rate);
 }
 
 bool almost_equals(float a, float b, float epsilon) {
@@ -30,6 +40,9 @@ void animate_v2_to_target(Vector2* value, Vector2 target, float delta_t, float r
 	animate_f32_to_target(&(value->x), target.x, delta_t, rate);
 	animate_f32_to_target(&(value->y), target.y, delta_t, rate);
 }
+
+// ^^^ generic utils
+
 
 typedef struct Sprite {
 	Gfx_Image* image;
@@ -79,6 +92,7 @@ typedef struct Entity {
 	SpriteID sprite_id;
 	int health;
 	bool destructable;
+	bool is_item;
 } Entity;
 // :entity
 # define MAX_ENTITY_COUNT 1024
@@ -138,11 +152,13 @@ void setup_wood(Entity* en) {
 void setup_item_plastic(Entity* en){
 	en->arch = arch_item_plastic;
 	en->sprite_id = SPRITE_item_plastic;
+	en->is_item = true;
 }
 
 void setup_item_wood(Entity* en){
 	en->arch = arch_item_wood;
 	en->sprite_id = SPRITE_item_wood;
+	en->is_item = true;
 }
 
 Vector2 screen_to_world() {
@@ -332,6 +348,10 @@ int entry(int argc, char **argv) {
 					{
 						Sprite* sprite = get_sprite(en->sprite_id);
 						Matrix4 xform = m4_scalar(1.0);
+						if (en->is_item){
+							xform = m4_translate(xform, v3(0, 2.0 * sin_breathe(os_get_current_time_in_seconds(), 3.0f), 0));
+
+						}
 						xform         = m4_translate(xform, v3(en->pos.x, en->pos.y, 0));
 						xform         = m4_translate(xform, v3(get_sprite_size(sprite).x * -0.5, 0, 0));
 
@@ -340,7 +360,7 @@ int entry(int argc, char **argv) {
 							color = COLOR_BLACK;
 						}
 						draw_image_xform(sprite->image, xform, get_sprite_size(sprite), color);
-						draw_text(font, sprint(temp_allocator, STR("%.2f, %.2f"), en->pos.x, en->pos.y), font_height * 0.90, en->pos, v2(0.1, 0.1), COLOR_GREEN);
+						// draw_text(font, sprint(temp_allocator, STR("%.2f, %.2f"), en->pos.x, en->pos.y), font_height * 0.90, en->pos, v2(0.1, 0.1), COLOR_GREEN);
 						break;
 					}
 				}
