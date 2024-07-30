@@ -12,6 +12,37 @@
 void* heap_alloc(u64);
 void heap_dealloc(void*);
 
+#define win32_check_hr(hr) win32_check_hr_impl(hr, __LINE__, __FILE__);
+void win32_check_hr_impl(HRESULT hr, u32 line, const char* file_name) {
+    if (hr != S_OK) {
+    
+    	LPVOID errorMsg;
+        DWORD dwFlags = FORMAT_MESSAGE_ALLOCATE_BUFFER | 
+                        FORMAT_MESSAGE_FROM_SYSTEM | 
+                        FORMAT_MESSAGE_IGNORE_INSERTS;
+
+        DWORD messageLength = FormatMessageW(
+            dwFlags,
+            NULL,
+            hr,
+            MAKELANGID(LANG_ENGLISH, SUBLANG_DEFAULT),
+            (LPWSTR) &errorMsg,
+            0,
+            NULL );
+
+        if (messageLength > 0) {
+            MessageBoxW(NULL, (LPWSTR)errorMsg, L"Error", MB_OK | MB_ICONERROR);
+        } else {
+            MessageBoxW(NULL, L"Failed to retrieve error message.", L"Error", MB_OK | MB_ICONERROR);
+        }
+    
+
+        panic("win32 hr failed in file %cs on line %d, hr was %d", file_name, line, hr);
+    }
+}
+
+#ifndef OOGABOOGA_HEADLESS
+
 // Persistent
 Input_State_Flags win32_key_states[INPUT_KEY_CODE_COUNT];
 
@@ -202,6 +233,7 @@ void
 win32_audio_poll_default_device_thread(Thread *t);
 
 bool win32_has_audio_thread_started = false;
+#endif /* OOGABOOGA_HEADLESS */
 
 void os_init(u64 program_memory_size) {
 	
@@ -214,9 +246,9 @@ void os_init(u64 program_memory_size) {
     win32_check_hr(hr);
 	
 	context.thread_id = GetCurrentThreadId();
-	
-	
-	
+
+
+
 #if CONFIGURATION == RELEASE
 	SetPriorityClass(GetCurrentProcess(), REALTIME_PRIORITY_CLASS);
 #endif
@@ -255,24 +287,20 @@ void os_init(u64 program_memory_size) {
 	assert(os.crt != 0, "Could not load win32 crt library. Might be compiled with non-msvc? #Incomplete #Portability");
 	os.crt_vsnprintf = (Crt_Vsnprintf_Proc)os_dynamic_library_load_symbol(os.crt, STR("vsnprintf"));
 	assert(os.crt_vsnprintf, "Missing vsnprintf in crt");
-	os.crt_vprintf = (Crt_Vprintf_Proc)os_dynamic_library_load_symbol(os.crt, STR("vprintf"));
-	assert(os.crt_vprintf, "Missing vprintf in crt");
-	os.crt_vsprintf = (Crt_Vsprintf_Proc)os_dynamic_library_load_symbol(os.crt, STR("vsprintf"));
-	assert(os.crt_vsprintf, "Missing vsprintf in crt");
-	os.crt_memcpy = (Crt_Memcpy_Proc)os_dynamic_library_load_symbol(os.crt, STR("memcpy"));
-	assert(os.crt_memcpy, "Missing memcpy in crt");
-	os.crt_memcmp = (Crt_Memcmp_Proc)os_dynamic_library_load_symbol(os.crt, STR("memcmp"));
-	assert(os.crt_memcmp, "Missing crt_memcmp in crt");
-	os.crt_memset = (Crt_Memset_Proc)os_dynamic_library_load_symbol(os.crt, STR("memset"));
-	assert(os.crt_memset, "Missing memset in crt");
 	
+#ifndef OOGABOOGA_HEADLESS
     win32_init_window();
     
+    local_persist Thread audio_thread, audio_poll_default_device_thread;
     
-    os_start_thread(os_make_thread(win32_audio_thread, get_heap_allocator()));
-    os_start_thread(os_make_thread(win32_audio_poll_default_device_thread, get_heap_allocator()));
+    os_thread_init(&audio_thread, win32_audio_thread);
+    os_thread_init(&audio_poll_default_device_thread, win32_audio_poll_default_device_thread);
+    
+    os_thread_start(&audio_thread);
+    os_thread_start(&audio_poll_default_device_thread);
     
     while (!win32_has_audio_thread_started) { os_yield_thread(); }
+#endif /* NOT OOGABOOGA_HEADLESS */
 }
 
 void s64_to_null_terminated_string_reverse(char str[], int length)
@@ -341,6 +369,9 @@ bool os_grow_program_memory(u64 new_size) {
 		
 		memset(program_memory, 0xBA, program_memory_size);
 	} else {
+		// #Cleanup this mess
+		// Allocation size doesn't actually need to be aligned to granularity, page size is enough.
+		// Doesn't matter that much tho, but this is just a bit unfortunate to look at.
 		void* tail = (u8*)program_memory + program_memory_size;
 		u64 m = ((u64)program_memory_size % os.granularity);
 		assert(m == 0, "program_memory_size is not aligned to granularity!");
@@ -404,6 +435,8 @@ DWORD WINAPI win32_thread_invoker(LPVOID param) {
 	return 0;
 }
 
+
+////// DEPRECATED   vvvvvvvvvvvvvvvvv
 Thread* os_make_thread(Thread_Proc proc, Allocator allocator) {
 	Thread *t = (Thread*)alloc(allocator, sizeof(Thread));
 	t->id = 0; // This is set when we start it
@@ -431,6 +464,33 @@ void os_start_thread(Thread *t) {
     assert(t->os_handle, "Failed creating thread");
 }
 void os_join_thread(Thread *t) {
+	WaitForSingleObject(t->os_handle, INFINITE);
+}
+////// DEPRECATED   ^^^^^^^^^^^^^^^^
+
+void os_thread_init(Thread *t, Thread_Proc proc) {
+	memset(t, 0, sizeof(Thread));
+	t->id = 0;
+	t->proc = proc;
+	t->initial_context = context;
+}
+void os_thread_destroy(Thread *t) {
+	os_thread_join(t);
+	CloseHandle(t->os_handle);
+}
+void os_thread_start(Thread *t) {
+	t->os_handle = CreateThread(
+        0,
+        0,
+        win32_thread_invoker,
+        t,
+        0,
+        (DWORD*)&t->id
+    );
+    
+    assert(t->os_handle, "Failed creating thread");
+}
+void os_thread_join(Thread *t) {
 	WaitForSingleObject(t->os_handle, INFINITE);
 }
 
@@ -473,59 +533,6 @@ void os_unlock_mutex(Mutex_Handle m) {
 	BOOL result = ReleaseMutex(m);
 	assert(result, "Unlock mutex 0x%x failed with error %d", m, GetLastError());
 }
-
-///
-// Spinlock "primitive"
-
-Spinlock *os_make_spinlock(Allocator allocator) {
-	// #Memory #Cleanup do we need to heap allocate this ?
-	Spinlock *l = cast(Spinlock*)alloc(allocator, sizeof(Spinlock));
-	l->locked = false;
-	return l;
-}
-void os_spinlock_lock(Spinlock *l) {
-    while (true) {
-        bool expected = false;
-        if (compare_and_swap_bool(&l->locked, true, expected)) {
-            return;
-        }
-        while (l->locked) {
-            // spinny boi
-        }
-    }
-}
-
-void os_spinlock_unlock(Spinlock *l) {
-    bool expected = true;
-    bool success = compare_and_swap_bool(&l->locked, false, expected);
-    assert(success, "This thread should have acquired the spinlock but compare_and_swap failed");
-}
-
-
-///
-// Concurrency utilities
-
-bool os_compare_and_swap_8(u8 *a, u8 b, u8 old) {
-	// #Portability not sure how portable this is.
-    return _InterlockedCompareExchange8((volatile CHAR*)a, (CHAR)b, (CHAR)old) == (CHAR)old;
-}
-
-bool os_compare_and_swap_16(u16 *a, u16 b, u16 old) {
-    return InterlockedCompareExchange16((volatile SHORT*)a, (SHORT)b, (SHORT)old) == (SHORT)old;
-}
-
-bool os_compare_and_swap_32(u32 *a, u32 b, u32 old) {
-    return InterlockedCompareExchange((volatile LONG*)a, (LONG)b, (LONG)old) == (LONG)old;
-}
-
-bool os_compare_and_swap_64(u64 *a, u64 b, u64 old) {
-    return InterlockedCompareExchange64((volatile LONG64*)a, (LONG64)b, (LONG64)old) == (LONG64)old;
-}
-
-bool os_compare_and_swap_bool(bool *a, bool b, bool old) {
-	return os_compare_and_swap_8(cast(u8*)a, cast(u8)b, cast(u8)old);
-}
-
 
 
 void os_sleep(u32 ms) {
@@ -581,8 +588,10 @@ float64 os_get_current_time_in_seconds() {
 // Dynamic Libraries
 ///
 
+u16 *temp_win32_fixed_utf8_to_null_terminated_wide(string utf8);
+
 Dynamic_Library_Handle os_load_dynamic_library(string path) {
-	return LoadLibraryA(temp_convert_to_null_terminated_string(path));
+	return LoadLibraryW(temp_win32_fixed_utf8_to_null_terminated_wide(path));
 }
 void *os_dynamic_library_load_symbol(Dynamic_Library_Handle l, string identifier) {
 	return GetProcAddress(l, temp_convert_to_null_terminated_string(identifier));
@@ -628,7 +637,7 @@ u16 *win32_fixed_utf8_to_null_terminated_wide(string utf8, Allocator allocator) 
     return utf16_str;
 }
 u16 *temp_win32_fixed_utf8_to_null_terminated_wide(string utf8) {
-	return win32_fixed_utf8_to_null_terminated_wide(utf8, temp);
+	return win32_fixed_utf8_to_null_terminated_wide(utf8, get_temporary_allocator());
 }
 string win32_null_terminated_wide_to_fixed_utf8(const u16 *utf16, Allocator allocator) {
     u64 utf8_length = WideCharToMultiByte(CP_UTF8, 0, (LPCWCH)utf16, -1, 0, 0, 0, 0);
@@ -656,7 +665,7 @@ string win32_null_terminated_wide_to_fixed_utf8(const u16 *utf16, Allocator allo
 }
 
 string temp_win32_null_terminated_wide_to_fixed_utf8(const u16 *utf16) {
-    return win32_null_terminated_wide_to_fixed_utf8(utf16, temp);
+    return win32_null_terminated_wide_to_fixed_utf8(utf16, get_temporary_allocator());
 }
 
 
@@ -685,6 +694,12 @@ void os_file_close(File f) {
 bool os_file_delete_s(string path) {
 	u16 *path_wide = temp_win32_fixed_utf8_to_null_terminated_wide(path);
 	return (bool)DeleteFileW(path_wide);
+}
+
+bool os_file_copy_s(string from, string to, bool replace_if_exists) {
+    u16 *from_wide = temp_win32_fixed_utf8_to_null_terminated_wide(from);
+    u16 *to_wide   = temp_win32_fixed_utf8_to_null_terminated_wide(to);
+	return (bool)CopyFileW(from_wide, to_wide, !replace_if_exists);
 }
 
 bool os_make_directory_s(string path, bool recursive) {
@@ -809,6 +824,18 @@ os_file_get_size(File f) {
     return result;
 }
 
+s64 
+os_file_get_size_from_path(string path) {
+	File f = os_file_open(path, O_READ);
+	if (f == OS_INVALID_FILE) return -1;
+	
+	s64 size = os_file_get_size(f);
+	
+	os_file_close(f);
+	
+	return size;
+}
+
 s64 os_file_get_pos(File f) {
     LARGE_INTEGER pos = {0};
     LARGE_INTEGER new_pos;
@@ -927,11 +954,11 @@ bool os_get_absolute_path(string path, string *result, Allocator allocator) {
 bool os_get_relative_path(string from, string to, string *result, Allocator allocator) {
     
 	if (!os_is_path_absolute(from)) {
-		bool abs_ok = os_get_absolute_path(from, &from, temp);
+		bool abs_ok = os_get_absolute_path(from, &from, get_temporary_allocator());
 		if (!abs_ok) return false;
 	}
 	if (!os_is_path_absolute(to)) {
-		bool abs_ok = os_get_absolute_path(to, &to, temp);
+		bool abs_ok = os_get_absolute_path(to, &to, get_temporary_allocator());
 		if (!abs_ok) return false;
 	}
 	
@@ -1116,6 +1143,9 @@ os_get_stack_trace(u64 *trace_count, Allocator allocator) {
 	
 #endif // NOT DEBUG
 }
+
+
+#ifndef OOGABOOGA_HEADLESS
 
 // Actually fuck you bill gates
 const GUID CLSID_MMDeviceEnumerator = {0xbcde0395, 0xe52f, 0x467c, {0x8e,0x3d, 0xc4,0x57,0x92,0x91,0x69,0x2e}};
@@ -1409,9 +1439,11 @@ win32_audio_thread(Thread *t) {
         
 	}
 }
+#endif /* OOGABOOGA_HEADLESS */
 
 void os_update() {
 
+#ifndef OOGABOOGA_HEADLESS
 	UINT dpi = GetDpiForWindow(window._os_handle);
     float dpi_scale_factor = dpi / 96.0f;
 
@@ -1526,8 +1558,10 @@ void os_update() {
 	if (window.should_close) {
 		win32_window_proc(window._os_handle, WM_CLOSE, 0, 0);
 	}
+#endif /* OOGABOOGA_HEADLESS */
 }
 
+#ifndef OOGABOOGA_HEADLESS
 Input_Key_Code os_key_to_key_code(void* os_key) {
 
 	UINT win32_key = (UINT)(u64)os_key;
@@ -1639,3 +1673,4 @@ void* key_code_to_os_key(Input_Key_Code key_code) {
     panic("Invalid key code %d", key_code);
     return 0;
 }
+#endif /* OOGABOOGA_HEADLESS */

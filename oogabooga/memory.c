@@ -5,8 +5,16 @@
 #define GB(x) ((MB(x))*1024ull)
 
 
-void* program_memory = 0;
+// #Global
+ogb_instance void *program_memory;
+ogb_instance u64 program_memory_size;
+ogb_instance Mutex_Handle program_memory_mutex;
+
+#if !OOGABOOGA_LINK_EXTERNAL_INSTANCE
+void *program_memory = 0;
 u64 program_memory_size = 0;
+Mutex_Handle program_memory_mutex = 0;
+#endif // NOT OOGABOOGA_LINK_EXTERNAL_INSTANCE
 
 #ifndef INIT_MEMORY_SIZE
 	#define INIT_MEMORY_SIZE KB(50)
@@ -71,6 +79,10 @@ typedef struct Heap_Block {
 	void* start;
 	Heap_Block *next;
 	// 32 bytes !!
+#if CONFIGURATION == DEBUG
+	u64 total_allocated;
+	u64 padding;
+#endif
 } Heap_Block;
 
 #define HEAP_META_SIGNATURE 6969694206942069ull
@@ -83,9 +95,16 @@ typedef alignat(16) struct Heap_Allocation_Metadata {
 #endif
 } Heap_Allocation_Metadata;
 
+// #Global
+ogb_instance Heap_Block *heap_head;
+ogb_instance bool heap_initted;
+ogb_instance Spinlock heap_lock;
+
+#if !OOGABOOGA_LINK_EXTERNAL_INSTANCE
 Heap_Block *heap_head;
 bool heap_initted = false;
-Spinlock heap_lock; // This is terrible but I don't care for now
+Spinlock heap_lock;
+#endif // NOT OOGABOOGA_LINK_EXTERNAL_INSTANCE
 	
 
 u64 get_heap_block_size_excluding_metadata(Heap_Block *block) {
@@ -112,11 +131,12 @@ bool is_pointer_valid(void *p) {
 
 // Meant for debug
 void sanity_check_block(Heap_Block *block) {
-
+#if CONFIGURATION == DEBUG
 	assert(is_pointer_in_program_memory(block), "Heap_Block pointer is corrupt");
 	assert(is_pointer_in_program_memory(block->start), "Heap_Block pointer is corrupt");
 	if(block->next) { assert(is_pointer_in_program_memory(block->next), "Heap_Block next pointer is corrupt"); }
 	assert(block->size < GB(256), "A heap block is corrupt.");
+	assert(block->size >= INITIAL_PROGRAM_MEMORY_SIZE, "A heap block is corrupt.");
 	assert((u64)block->start == (u64)block + sizeof(Heap_Block), "A heap block is corrupt.");
 	
 
@@ -139,6 +159,9 @@ void sanity_check_block(Heap_Block *block) {
 		node = node->next;
 	}
 	
+	u64 expected_size = get_heap_block_size_excluding_metadata(block);
+	assert(block->total_allocated+total_free == expected_size, "Heap is corrupt.")
+#endif
 }
 inline void check_meta(Heap_Allocation_Metadata *meta) {
 #if CONFIGURATION == DEBUG
@@ -215,10 +238,11 @@ Heap_Block *make_heap_block(Heap_Block *parent, u64 size) {
 	} else {
 		block = (Heap_Block*)program_memory;
 	}
+#if CONFIGURATION == DEBUG
+	block->total_allocated = 0;
+#endif
 	
 	
-	
-	// #Speed #Cleanup
 	if (((u8*)block)+size >= ((u8*)program_memory)+program_memory_size) {
 		u64 minimum_size = ((u8*)block+size) - (u8*)program_memory + 1;
 		u64 new_program_size = get_next_power_of_two(minimum_size);
@@ -270,6 +294,18 @@ void *heap_alloc(u64 size) {
 	
 	assert(size < MAX_HEAP_BLOCK_SIZE, "Past Charlie has been lazy and did not handle large allocations like this. I apologize on behalf of past Charlie. A quick fix could be to increase the heap block size for now. #Incomplete #Limitation");
 	
+	
+#if VERY_DEBUG
+	{
+		Heap_Block *block = heap_head;
+		
+		while (block != 0) {
+			sanity_check_block(block);
+			block = block->next;
+		}
+	}
+#endif
+	
 	Heap_Block *block = heap_head;
 	Heap_Block *last_block = 0;
 	Heap_Free_Node *best_fit = 0;
@@ -279,10 +315,6 @@ void *heap_alloc(u64 size) {
 	// #Speed
 	// Maybe instead of going through EVERY free node to find best fit we do a good-enough fit
 	while (block != 0) {
-	
-#if VERY_DEBUG
-		sanity_check_block(block);
-#endif
 
 		if (get_heap_block_size_excluding_metadata(block) < size) {
 			last_block = block;
@@ -355,6 +387,7 @@ void *heap_alloc(u64 size) {
 	meta->block = best_fit_block;
 #if CONFIGURATION == DEBUG
 	meta->signature = HEAP_META_SIGNATURE;
+	meta->block->total_allocated += size;
 #endif
 
 	check_meta(meta);
@@ -450,6 +483,10 @@ void heap_dealloc(void *p) {
 	}
 	
 
+#if CONFIGURATION == DEBUG
+	block->total_allocated -= size;
+#endif
+
 #if VERY_DEBUG
 	sanity_check_block(block);
 #endif
@@ -501,19 +538,41 @@ Allocator get_heap_allocator() {
 	#define TEMPORARY_STORAGE_SIZE (1024ULL*1024ULL*2ULL) // 2mb
 #endif
 
-void* talloc(u64);
-void* temp_allocator_proc(u64 size, void *p, Allocator_Message message, void*);
+ogb_instance void* talloc(u64);
+ogb_instance void* temp_allocator_proc(u64 size, void *p, Allocator_Message message, void*);
 
+// #Global
+ogb_instance Allocator 
+get_temporary_allocator();
+
+#if !OOGABOOGA_LINK_EXTERNAL_INSTANCE
 thread_local void * temporary_storage = 0;
 thread_local bool   temporary_storage_initted = false;
 thread_local void * temporary_storage_pointer = 0;
 thread_local bool   has_warned_temporary_storage_overflow = false;
-thread_local Allocator temp;
+thread_local Allocator temp_allocator;
 
-Allocator get_temporary_allocator() {
-	return temp;
+ogb_instance Allocator 
+get_temporary_allocator() {
+    if (!temporary_storage_initted) return get_initialization_allocator();
+	return temp_allocator;
 }
+#endif
 
+ogb_instance void* 
+temp_allocator_proc(u64 size, void *p, Allocator_Message message, void* data);
+
+ogb_instance void 
+temporary_storage_init();
+
+ogb_instance void* 
+talloc(u64 size);
+
+ogb_instance void 
+reset_temporary_storage();
+
+
+#if !OOGABOOGA_LINK_EXTERNAL_INSTANCE
 void* temp_allocator_proc(u64 size, void *p, Allocator_Message message, void* data) {
 	switch (message) {
 		case ALLOCATOR_ALLOCATE: {
@@ -537,12 +596,12 @@ void temporary_storage_init() {
 	assert(temporary_storage, "Failed allocating temporary storage");
 	temporary_storage_pointer = temporary_storage;
 
-	temp.proc = temp_allocator_proc;
-	temp.data = 0;
+	temp_allocator.proc = temp_allocator_proc;
+	temp_allocator.data = 0;
 	
 	temporary_storage_initted = true;
 	
-	temp.proc = temp_allocator_proc;
+	temp_allocator.proc = temp_allocator_proc;
 }
 
 void* talloc(u64 size) {
@@ -573,3 +632,4 @@ void reset_temporary_storage() {
 	has_warned_temporary_storage_overflow = true;
 }
 
+#endif // NOT OOGABOOGA_LINK_EXTERNAL_INSTANCE
