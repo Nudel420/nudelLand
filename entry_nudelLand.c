@@ -169,7 +169,7 @@ int entry(int argc, char **argv) {
 	float64 seconds_counter = 0.0;
 	s32 frames_counter = 0;
 
-	float zoom = 2.7; // 5.3
+	float zoom = 5.3; // 5.3
 	Vector2 camera_pos = v2(0.0, 0.0);
 
 
@@ -196,21 +196,22 @@ int entry(int argc, char **argv) {
 		
 		// :mouse to world
 		{
-			Vector2 mouse_pos = screen_to_world();
+			Vector2 mouse_pos_world = screen_to_world();
 
 			for (int i = 0; i < MAX_ENTITY_COUNT; i++){
 				Entity* en = &world->entities[i];
 				if(en->is_valid){
 					Sprite* sprite = get_sprite(en->sprite_id);
-					Range2f bounds = range2f_make_bottom_center(sprite->size);
-					bounds = range2f_shift(bounds, en->pos);
+					
+					// Range2f bounds = range2f_make_bottom_center(sprite->size);
+					// bounds = range2f_shift(bounds, en->pos);
 
-					Vector4 col = COLOR_RED;
-					col.a = 0.4;
-					if(range2f_contains(bounds, mouse_pos)){
-						col.a = 0.8;
-					}
-					draw_rect(bounds.min, range2f_size(bounds), col);
+					// Vector4 col = COLOR_RED;
+					// col.a = 0.4;
+					// if(range2f_contains(bounds, mouse_pos_world)){
+					// 	col.a = 0.8;
+					// }
+					// draw_rect(bounds.min, range2f_size(bounds), col);
 
 				}
 			}
