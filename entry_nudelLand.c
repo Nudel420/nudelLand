@@ -3,7 +3,7 @@ const float entity_selection_radius = 10.0f;
 const int player_health = 10;
 const int plastic_health = 1;
 const int wood_health = 1;
-const float player_pickup_radius = 20.0f;
+const float player_pickup_radius = 15.0f;
 // ^^^ constants
 
 
@@ -345,7 +345,8 @@ int entry(int argc, char **argv) {
 							{
 								Entity* en = entity_create();
 								setup_item_plastic(en);
-								en->pos = player_en->pos;
+								// en->pos = player_en->pos;
+								en->pos = selected_en->pos;
 								break;
 							}
 							case (arch_wood):
