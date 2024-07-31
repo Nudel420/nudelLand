@@ -3,7 +3,7 @@ const float entity_selection_radius = 10.0f;
 const int player_health = 10;
 const int plastic_health = 1;
 const int wood_health = 1;
-
+const float player_pickup_radius = 20.0f;
 // ^^^ constants
 
 
@@ -94,11 +94,16 @@ typedef struct Entity {
 	bool destructable;
 	bool is_item;
 } Entity;
-// :entity
 # define MAX_ENTITY_COUNT 1024
+// :entity
+
+typedef struct ItemData{
+	int amount;
+} ItemData;
 
 typedef struct World {
 	Entity entities[MAX_ENTITY_COUNT];
+	ItemData inventory_items[ARCH_MAX];
 } World;
 
 World* world;
@@ -209,6 +214,12 @@ int entry(int argc, char **argv) {
 	
 	const u32 font_height = 48;
 
+	// :init
+
+	// test item adding
+	{
+		world->inventory_items[arch_item_plastic].amount = 5; 
+	}
 
 	Entity* player_en = entity_create();
 	setup_player(player_en);
@@ -281,7 +292,7 @@ int entry(int argc, char **argv) {
 		}
 
 
-		// :tiles
+		// :tile rendering
 		// float player_tile_x = world_to_tile_pos(player_en->pos.x);
 		// float player_tile_y = world_to_tile_pos(player_en->pos.y);
 		// const int tile_radius_x = 5;
@@ -296,6 +307,25 @@ int entry(int argc, char **argv) {
 		// 		}
 		// 	}
 		// }
+
+		// :update entities
+		{
+			for (int i = 0; i < MAX_ENTITY_COUNT; i++) {
+				Entity* en = &world->entities[i];
+				if (en->is_valid){
+					
+					// pick up item
+					if (en->is_item){
+						// TODO: - make physics for pick up
+						if (fabsf(v2_dist(en->pos, player_en->pos)) < player_pickup_radius){
+							world->inventory_items[en->arch].amount += 1;
+							entity_destroy(en);
+						}
+					}
+				}
+			}
+		}
+
 
 		// :click-detection
 		{
