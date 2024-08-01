@@ -84,6 +84,14 @@ typedef enum EntityArchetype {
 	
 } EntityArchetype;
 
+SpriteID get_sprite_id_from_archetype(EntityArchetype arch){
+	switch(arch){
+		case arch_item_plastic: return SPRITE_item_plastic;
+		case arch_item_wood: 	return SPRITE_item_wood;
+		default: return 0;
+	}
+}
+
 typedef struct Entity {
 	bool is_valid;
 	Vector2 pos;
@@ -202,6 +210,7 @@ int entry(int argc, char **argv) {
 	memset(world, 0, sizeof(World));
 	
 	// :sprites
+	sprites[0] = (Sprite){ .image = load_image_from_disk(STR("resources/missing_texture.png"), get_heap_allocator())};
 	sprites[SPRITE_player] = (Sprite){ .image = load_image_from_disk(STR("resources/player.png"), get_heap_allocator())};
 	sprites[SPRITE_plastic_0] = (Sprite){ .image = load_image_from_disk(STR("resources/plastic_0.png"), get_heap_allocator())};
 	sprites[SPRITE_wood] = (Sprite){ .image = load_image_from_disk(STR("resources/wood.png"), get_heap_allocator())};
@@ -218,7 +227,8 @@ int entry(int argc, char **argv) {
 
 	// test item adding
 	{
-		world->inventory_items[arch_item_plastic].amount = 5; 
+		// world->inventory_items[arch_item_plastic].amount = 5; 
+		// world->inventory_items[arch_item_wood].amount = 5; 
 	}
 
 	Entity* player_en = entity_create();
@@ -232,6 +242,12 @@ int entry(int argc, char **argv) {
 
 	}
 
+	for (int i = 0; i < 10; i++) {
+		Entity* en = entity_create();
+		setup_wood(en);
+		en->pos = v2(get_random_float32_in_range(-100.0, 100), get_random_float32_in_range(-100.0, 100.0));
+
+	}
 
 	float64 seconds_counter = 0.0;
 	s32 frames_counter = 0;
@@ -327,7 +343,7 @@ int entry(int argc, char **argv) {
 		}
 
 
-		// :click-detection
+		// :click destroy
 		{
 			Entity* selected_en = world_frame.selected_en;
 
@@ -353,7 +369,7 @@ int entry(int argc, char **argv) {
 							{
 								Entity* en = entity_create();
 								setup_item_wood(en);
-								en->pos = player_en->pos;
+								en->pos = selected_en->pos;
 								break;
 							}
 						}
@@ -368,7 +384,7 @@ int entry(int argc, char **argv) {
 			}
 		}
 
-		// :render
+		// :render entities
 		for (int i = 0; i < MAX_ENTITY_COUNT; i++){
 			Entity* en = &world->entities[i];
 			if (en->is_valid) {
@@ -398,6 +414,50 @@ int entry(int argc, char **argv) {
 			}
 		}
 
+		{
+			float width = 240.0;
+			float height = 135.0;
+			draw_frame.view = m4_scalar(1.0);
+			draw_frame.projection = m4_make_orthographic_projection(0.0, width, 0.0, height, -1, 10);
+
+			float y_pos = 70.0;
+
+			int item_count = 0;
+			for (int i = 0; i < ARCH_MAX; i++) {
+				ItemData* item = &world->inventory_items[i];
+				if (item->amount > 0){
+					item_count++;
+				}
+			}
+
+			const float icon_thing = 16.0;
+			const float padding = 4.0;
+			float icon_width = icon_thing + padding;
+
+			float entire_thing_with = item_count * icon_width;
+			float x_start_pos = (width - entire_thing_with + icon_width) / 2;
+
+			int slot_index = 0;
+			for (int i = 0; i < ARCH_MAX; i++) {
+				ItemData* item = &world->inventory_items[i];
+				if (item->amount > 0){
+					float slot_index_offset = slot_index * icon_width;
+
+					Matrix4 xform = m4_scalar(1.0);
+					xform = m4_translate(xform, v3(x_start_pos + slot_index_offset, y_pos, 0.0));
+					xform = m4_translate(xform, v3(-4.0, -4.0, 0.0));
+					draw_rect_xform(xform, v2(16, 16), COLOR_BLACK);
+
+					Sprite* sprite = get_sprite(get_sprite_id_from_archetype(i));
+
+					draw_image_xform(sprite->image, xform, get_sprite_size(sprite), COLOR_WHITE);
+
+					slot_index++;
+				}
+			}
+
+
+		}
 
 		// :garbage floating
 		for (int i = 0; i < MAX_ENTITY_COUNT; i++){
