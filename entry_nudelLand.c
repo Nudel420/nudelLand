@@ -147,9 +147,18 @@ typedef struct ItemData{
 	int amount;
 } ItemData;
 
+typedef enum UXState{
+	UX_nil,
+	UX_inventory, 
+} UXState;
+
+// :world
 typedef struct World {
 	Entity entities[MAX_ENTITY_COUNT];
 	ItemData inventory_items[ARCH_MAX];
+	UXState ux_state;
+	float inventory_alpha;
+	float inventory_alpha_target;
 } World;
 
 World* world;
@@ -475,7 +484,18 @@ int entry(int argc, char **argv) {
 			draw_frame.projection = m4_make_orthographic_projection(0.0, width, 0.0, height, -1, 10);
 
 			// inventoy UI
-			if (false)
+			
+			// :input key
+			{
+				if(is_key_just_pressed('E')){
+					consume_key_just_pressed('E');
+					world->ux_state = (world->ux_state == UX_inventory ? UX_nil : UX_inventory);
+				}	
+			}
+			world->inventory_alpha_target = (world->ux_state == UX_inventory ? 1.0 : 0.0);
+			animate_f32_to_target(&world->inventory_alpha, world->inventory_alpha_target, delta_t, 15.0);
+			bool is_inventory_enabled = (world->inventory_alpha_target == 1.0);
+			if (world->inventory_alpha_target != 0)
 			{
 			float y_pos = 70.0;
 
@@ -518,7 +538,7 @@ int entry(int argc, char **argv) {
 					float is_selected_alpha = 0.0;
 					Draw_Quad* quad = draw_rect_xform(xform, v2(16, 16), v4(1.0, 1.0, 1.0, 0.3));
 					Range2f icon_box = quad_to_range(*quad);
-					if(range2f_contains(icon_box, get_mouse_pos_in_ndc())){
+					if(is_inventory_enabled && range2f_contains(icon_box, get_mouse_pos_in_ndc())){
 						is_selected_alpha = 1.0;
 					}
 					
