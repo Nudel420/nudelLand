@@ -4,8 +4,10 @@ const int player_health = 10;
 const int plastic_health = 1;
 const int wood_health = 1;
 const float player_pickup_radius = 15.0f;
+const Vector4 bg_box_color = {0.0, 0.0, 0.0, 0.2};
 // ^^^ constants
 
+#define m4_identiy m4_make_scale(v3(1, 1, 1))
 
 inline float v2_dist(Vector2 a, Vector2 b) {
     return v2_length(v2_sub(a, b));
@@ -13,9 +15,27 @@ inline float v2_dist(Vector2 a, Vector2 b) {
 int world_to_tile_pos(float world_pos){
 	return world_pos / (float) tile_width;
 }
-
 // ^^^ game engine stuff 
 
+
+// the scuff zone
+Draw_Quad ndc_quad_to_screen_quad(Draw_Quad ndc_quad){
+	
+	// NOTE: we assume these are the screen space matricies
+	Matrix4 proj = draw_frame.projection;
+	Matrix4 view = draw_frame.view;
+
+	Matrix4 ndc_to_screen_space = m4_identiy;
+	ndc_to_screen_space = m4_mul(ndc_to_screen_space, m4_inverse(proj));
+	ndc_to_screen_space = m4_mul(ndc_to_screen_space, view);
+
+	ndc_quad.bottom_left = m4_transform(ndc_to_screen_space, v4(v2_expand(ndc_quad.bottom_left), 0.0, 1.0)).xy;
+	ndc_quad.bottom_right = m4_transform(ndc_to_screen_space, v4(v2_expand(ndc_quad.bottom_right), 0.0, 1.0)).xy;
+	ndc_quad.top_left = m4_transform(ndc_to_screen_space, v4(v2_expand(ndc_quad.top_left), 0.0, 1.0)).xy;
+	ndc_quad.top_right = m4_transform(ndc_to_screen_space, v4(v2_expand(ndc_quad.top_right), 0.0, 1.0)).xy;
+	
+	return ndc_quad;
+}
 
 // moves from 0 -> 1 instead of
 float sin_breathe(float time, float rate){
@@ -41,7 +61,16 @@ void animate_v2_to_target(Vector2* value, Vector2 target, float delta_t, float r
 	animate_f32_to_target(&(value->y), target.y, delta_t, rate);
 }
 
+Range2f quad_to_range(Draw_Quad quad){
+	return (Range2f){quad.bottom_left, quad.top_right};
+}
+
+Vector2 range2f_get_center(Range2f range){
+	return (Vector2) {(range.max.x - range.min.x) * 0.5 + range.min.x, (range.max.y - range.min.y) * 0.5 + range.min.y};
+}
 // ^^^ generic utils
+
+
 
 
 typedef struct Sprite {
@@ -91,6 +120,15 @@ SpriteID get_sprite_id_from_archetype(EntityArchetype arch){
 		default: return 0;
 	}
 }
+
+string get_archetype_pretty_name(EntityArchetype arch){
+	switch(arch){
+		case arch_item_plastic: return STR("Plastic");
+		case arch_item_wood:	return STR("Wood");
+		default: return STR("NIL");
+	}
+}
+
 
 typedef struct Entity {
 	bool is_valid;
@@ -174,6 +212,21 @@ void setup_item_wood(Entity* en){
 	en->is_item = true;
 }
 
+Vector2 get_mouse_pos_in_ndc(){
+	float mouse_x = input_frame.mouse_x;
+	float mouse_y = input_frame.mouse_y;
+	Matrix4 proj = draw_frame.projection;
+	Matrix4 view = draw_frame.view;
+	float window_w = window.width;
+	float window_h = window.height;
+
+	// Normalize the mouse coordinates
+	float ndc_x = (mouse_x / (window_w * 0.5f)) - 1.0f;
+	float ndc_y = (mouse_y / (window_h * 0.5f)) - 1.0f;
+
+	return (Vector2){ndc_x, ndc_y};
+}
+
 Vector2 screen_to_world() {
 	float mouse_x = input_frame.mouse_x;
 	float mouse_y = input_frame.mouse_y;
@@ -203,7 +256,7 @@ int entry(int argc, char **argv) {
 	window.scaled_width = 1280; // We need to set the scaled size if we want to handle system scaling (DPI)
 	window.scaled_height = 720; 
 	window.x = 200;
-	window.y = 90;
+	window.y = 200;
 	window.clear_color = hex_to_rgba(0x3978a8ff);
 
 	world = alloc(get_heap_allocator(), sizeof(World));
@@ -227,7 +280,7 @@ int entry(int argc, char **argv) {
 
 	// test item adding
 	{
-		// world->inventory_items[arch_item_plastic].amount = 5; 
+		world->inventory_items[arch_item_plastic].amount = 5; 
 		// world->inventory_items[arch_item_wood].amount = 5; 
 	}
 
@@ -265,6 +318,7 @@ int entry(int argc, char **argv) {
 		last_time = now;
 		
 		os_update(); 
+
 		draw_frame.projection = m4_make_orthographic_projection(window.width * -0.5, window.width * 0.5, window.height * -0.5, window.height * 0.5, -1, 10);
 
 		// :camera
@@ -372,6 +426,11 @@ int entry(int argc, char **argv) {
 								en->pos = selected_en->pos;
 								break;
 							}
+							default: {
+								// TODO: if errors occure comment break?
+								break;
+							}
+							
 						}
 
 
@@ -414,6 +473,8 @@ int entry(int argc, char **argv) {
 			}
 		}
 
+
+		// :UI rendering
 		{
 			float width = 240.0;
 			float height = 135.0;
@@ -431,11 +492,21 @@ int entry(int argc, char **argv) {
 			}
 
 			const float icon_thing = 16.0;
-			const float padding = 4.0;
-			float icon_width = icon_thing + padding;
+			// const float padding = 2.0;
+			float icon_width = icon_thing;
 
-			float entire_thing_with = item_count * icon_width;
-			float x_start_pos = (width - entire_thing_with + icon_width) / 2;
+			const int icon_row_count = 8;
+
+			float entire_thing_width = icon_row_count * icon_width;
+			float x_start_pos = (width - entire_thing_width) / 2;
+
+			// bg box rendering
+			{
+				Matrix4 xform = m4_make_scale(v3(1.0, 1.0, 1.0));
+				xform = m4_translate(xform, v3(x_start_pos, y_pos, 0.0));
+				draw_rect_xform(xform, v2(entire_thing_width, icon_width), bg_box_color);
+			}
+
 
 			int slot_index = 0;
 			for (int i = 0; i < ARCH_MAX; i++) {
@@ -444,13 +515,93 @@ int entry(int argc, char **argv) {
 					float slot_index_offset = slot_index * icon_width;
 
 					Matrix4 xform = m4_scalar(1.0);
-					xform = m4_translate(xform, v3(x_start_pos + slot_index_offset, y_pos, 0.0));
-					xform = m4_translate(xform, v3(-4.0, -4.0, 0.0));
-					draw_rect_xform(xform, v2(16, 16), COLOR_BLACK);
-
+					xform = m4_translate(xform, v3(x_start_pos + slot_index_offset , y_pos , 0.0));
+					
 					Sprite* sprite = get_sprite(get_sprite_id_from_archetype(i));
 
+					float is_selected_alpha = 0.0;
+					Draw_Quad* quad = draw_rect_xform(xform, v2(16, 16), v4(1.0, 1.0, 1.0, 0.3));
+					Range2f icon_box = quad_to_range(*quad);
+					if(range2f_contains(icon_box, get_mouse_pos_in_ndc())){
+						is_selected_alpha = 1.0;
+					}
+					
+
+
+					Matrix4 box_bottom_right_xform = xform;
+
+					xform = m4_translate(xform, v3(icon_width * 0.5, icon_width * 0.5, 0.0));
+
+
+					if(is_selected_alpha == 1.0){
+						// TODO: selection polish
+						float scale_adjust = 0.3;// * sin_breathe(os_get_current_time_in_seconds(), 20.0);
+						xform = m4_scale(xform, v3(1 + scale_adjust, 1 + scale_adjust, 1));
+					}
+					{
+						// float adjust = PI32 * 2.0 * sin_breathe(os_get_current_time_in_seconds(), 1.0);
+						// xform = m4_rotate_z(xform, adjust);
+					}
+
+					xform = m4_translate(xform, v3(get_sprite_size(sprite).x * -0.5, get_sprite_size(sprite).y * -0.5, 0.0));
 					draw_image_xform(sprite->image, xform, get_sprite_size(sprite), COLOR_WHITE);
+
+					draw_text_xform(font, STR("5"), font_height, box_bottom_right_xform, v2(0.1, 0.1), COLOR_GREEN);
+
+					// tooltip
+					if(is_selected_alpha == 1.0){
+						
+						Draw_Quad screen_quad = ndc_quad_to_screen_quad(*quad);
+						Range2f screen_range = quad_to_range(screen_quad);
+						Vector2 icon_center = range2f_get_center(screen_range);
+
+						// icon_center 
+						Matrix4 xform = m4_scalar(1.0);
+						
+						// TODO: we're guessing the y box size here
+						// to auto-adjust the y-size we would need to the box down below
+						// this would mean that the box would be drawn over everything else
+						// => we would have to do z-sorting
+						Vector2 box_size = v2(30, 15);
+
+						xform = m4_translate(xform, v3(box_size.x * -0.5, - box_size.y - icon_width * 0.5, 0.0));
+						xform = m4_translate(xform, v3(icon_center.x, icon_center.y, 0.0));
+
+						draw_rect_xform(xform, box_size, bg_box_color);
+
+						float current_y_pos = icon_center.y;
+
+						{	
+							string title = get_archetype_pretty_name(i);
+
+							Gfx_Text_Metrics metrics = measure_text(font, title, font_height, v2(0.1, 0.1));
+							Vector2 draw_pos = icon_center;
+							draw_pos = v2_sub(draw_pos, metrics.visual_pos_min);
+							draw_pos = v2_add(draw_pos, v2_mul(metrics.visual_size, v2(-0.5, -1.0))); // top center
+
+							draw_pos = v2_add(draw_pos, v2(0, icon_width * -0.5));
+							draw_pos = v2_add(draw_pos, v2(0, -2.0)); // padding
+
+							draw_text(font, title, font_height, draw_pos, v2(0.1, 0.1), COLOR_GREEN);
+							current_y_pos = draw_pos.y;
+						}
+
+						{
+							// item->amount
+							string amount_text = STR("x%i");
+							amount_text = sprint(temp_allocator, amount_text, item->amount);
+							Gfx_Text_Metrics metrics = measure_text(font, amount_text, font_height, v2(0.1, 0.1));
+							Vector2 draw_pos = v2(icon_center.x, current_y_pos);
+							draw_pos = v2_sub(draw_pos, metrics.visual_pos_min);
+							draw_pos = v2_add(draw_pos, v2_mul(metrics.visual_size, v2(-0.5, -1.0))); // top center
+
+							// draw_pos = v2_add(draw_pos, v2(0, icon_width * -0.5));
+							draw_pos = v2_add(draw_pos, v2(0, -2.0)); // padding
+
+							draw_text(font, amount_text, font_height, draw_pos, v2(0.1, 0.1), COLOR_GREEN);
+						}
+					}
+
 
 					slot_index++;
 				}
