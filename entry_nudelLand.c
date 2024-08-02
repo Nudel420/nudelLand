@@ -343,22 +343,15 @@ int entry(int argc, char **argv) {
 				if(en->is_valid && en->destructable){
 					Sprite* sprite = get_sprite(en->sprite_id);
 					
-						float dist = fabsf(v2_dist(en->pos, mouse_pos_world));
-						if(dist < entity_selection_radius){
-							if (!world_frame.selected_en || (dist < smallest_dist)){
-								world_frame.selected_en = en;
-								smallest_dist = dist;
-
-							}
+					float dist = fabsf(v2_dist(en->pos, mouse_pos_world));
+					if(dist < entity_selection_radius){
+						if (!world_frame.selected_en || (dist < smallest_dist)){
+							world_frame.selected_en = en;
+							smallest_dist = dist;
 						}
-						
 					}
-
-
-
 				}
-			
-
+			}
 		}
 
 
@@ -481,6 +474,9 @@ int entry(int argc, char **argv) {
 			draw_frame.view = m4_scalar(1.0);
 			draw_frame.projection = m4_make_orthographic_projection(0.0, width, 0.0, height, -1, 10);
 
+			// inventoy UI
+			if (false)
+			{
 			float y_pos = 70.0;
 
 			int item_count = 0;
@@ -606,7 +602,7 @@ int entry(int argc, char **argv) {
 					slot_index++;
 				}
 			}
-
+		}
 
 		}
 
